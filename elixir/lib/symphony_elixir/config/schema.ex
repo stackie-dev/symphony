@@ -144,7 +144,7 @@ defmodule SymphonyElixir.Config.Schema do
 
     defp normalize_host_platforms(platforms) when is_map(platforms) do
       Map.new(platforms, fn {host, platform} ->
-        normalized_host = if is_binary(host), do: String.trim(host), else: host
+        normalized_host = String.trim(host)
 
         normalized_platform =
           if is_binary(platform), do: platform |> String.trim() |> String.downcase(), else: platform
@@ -160,9 +160,6 @@ defmodule SymphonyElixir.Config.Schema do
       errors =
         Enum.flat_map(platforms, fn {host, platform} ->
           cond do
-            not is_binary(host) ->
-              [host_platforms: "host aliases must be strings"]
-
             host == "" ->
               [host_platforms: "host aliases must not be blank"]
 
