@@ -894,6 +894,47 @@ defmodule SymphonyElixir.CoreTest do
     refute Process.alive?(agent_pid)
   end
 
+  test "reconcile stops a running issue when its platform changes" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      worker_ssh_hosts: ["greenie", "macos"],
+      worker_host_platforms: %{"greenie" => "linux", "macos" => "macos"}
+    )
+
+    issue_id = "issue-platform-changed"
+    agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+
+    state = %Orchestrator.State{
+      running: %{
+        issue_id => %{
+          pid: agent_pid,
+          ref: nil,
+          identifier: "MT-PLATFORM",
+          worker_host: "greenie",
+          issue: %Issue{id: issue_id, identifier: "MT-PLATFORM", state: "In Progress"},
+          started_at: DateTime.utc_now()
+        }
+      },
+      claimed: MapSet.new([issue_id]),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    issue = %Issue{
+      id: issue_id,
+      identifier: "MT-PLATFORM",
+      title: "Platform changed",
+      state: "In Progress",
+      labels: ["platform-macos"],
+      dispatchable: true
+    }
+
+    updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
+
+    refute Map.has_key?(updated_state.running, issue_id)
+    refute MapSet.member?(updated_state.claimed, issue_id)
+    refute Process.alive?(agent_pid)
+  end
+
   test "reconcile releases a blocked issue when a required label is removed" do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_required_labels: ["symphony"])
 
@@ -999,6 +1040,48 @@ defmodule SymphonyElixir.CoreTest do
     after
       File.rm_rf(test_root)
     end
+  end
+
+  test "retry remains scheduled when refreshed platform has no compatible capacity" do
+    issue_id = "retry-platform-changed"
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      worker_ssh_hosts: ["greenie"],
+      worker_host_platforms: %{"greenie" => "linux"},
+      worker_max_concurrent_agents_per_host: 1
+    )
+
+    refreshed_issue = %Issue{
+      id: issue_id,
+      identifier: "MT-RETRY-PLATFORM",
+      title: "Retry on macOS",
+      state: "In Progress",
+      labels: ["platform-macos"],
+      dispatchable: true
+    }
+
+    Application.put_env(:symphony_elixir, :memory_tracker_issues, [refreshed_issue])
+
+    state = %Orchestrator.State{
+      running: %{},
+      claimed: MapSet.new([issue_id]),
+      retry_attempts: %{}
+    }
+
+    original_issue = %{refreshed_issue | labels: []}
+
+    updated_state =
+      Orchestrator.handle_retry_issue_lookup_for_test(original_issue, state, issue_id, 1, %{
+        identifier: original_issue.identifier,
+        worker_host: "greenie",
+        error: "agent exited"
+      })
+
+    assert MapSet.member?(updated_state.claimed, issue_id)
+    assert updated_state.retry_attempts[issue_id].attempt == 2
+    assert updated_state.retry_attempts[issue_id].error == "no compatible worker capacity"
+    refute Map.has_key?(updated_state.running, issue_id)
   end
 
   test "agent runner does not continue after a required label is removed" do

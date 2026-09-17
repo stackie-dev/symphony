@@ -437,6 +437,11 @@ defmodule SymphonyElixir.Orchestrator do
 
         terminate_running_issue(state, issue.id, false)
 
+      !running_issue_platform_compatible?(state, issue) ->
+        Logger.info("Issue platform no longer matches its active worker: #{issue_context(issue)}; stopping active agent")
+
+        terminate_running_issue(state, issue.id, false)
+
       active_issue_state?(issue.state, active_states) ->
         refresh_running_issue_state(state, issue)
 
@@ -545,6 +550,19 @@ defmodule SymphonyElixir.Orchestrator do
 
       _ ->
         state
+    end
+  end
+
+  defp running_issue_platform_compatible?(%State{} = state, %Issue{} = issue) do
+    case Map.get(state.running, issue.id) do
+      %{worker_host: worker_host} when is_binary(worker_host) ->
+        worker_host_compatible?(issue, worker_host, Config.settings!().worker.host_platforms)
+
+      %{worker_host: nil} ->
+        Issue.required_platform(issue) == {:ok, nil}
+
+      _ ->
+        true
     end
   end
 
@@ -1187,11 +1205,23 @@ defmodule SymphonyElixir.Orchestrator do
 
   defp handle_active_retry(state, issue, attempt, metadata) do
     if retry_candidate_issue?(issue, terminal_state_set()) and
-         dispatch_slots_available?(issue, state) and
-         worker_slots_available?(state, issue, metadata[:worker_host]) do
+         dispatch_slots_available?(issue, state) do
       case refresh_issue_for_dispatch(issue) do
         {:ok, %Issue{} = refreshed_issue} ->
-          {:noreply, do_dispatch_issue(state, refreshed_issue, attempt, metadata[:worker_host])}
+          if worker_slots_available?(state, refreshed_issue, metadata[:worker_host]) do
+            {:noreply, do_dispatch_issue(state, refreshed_issue, attempt, metadata[:worker_host])}
+          else
+            {:noreply,
+             schedule_issue_retry(
+               state,
+               issue.id,
+               attempt + 1,
+               Map.merge(metadata, %{
+                 identifier: refreshed_issue.identifier,
+                 error: "no compatible worker capacity"
+               })
+             )}
+          end
 
         {:skip, :missing} ->
           {:noreply, release_issue_claim(state, issue.id)}

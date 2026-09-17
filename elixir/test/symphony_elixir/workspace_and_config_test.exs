@@ -1365,6 +1365,14 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "worker.host_platforms"
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      worker_ssh_hosts: ["worker-mac"],
+      worker_host_platforms: %{"worker-mac" => %{"unexpected" => true}}
+    )
+
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "worker.host_platforms"
   end
 
   test "schema helpers cover custom type and state limit validation" do
