@@ -1255,6 +1255,61 @@ defmodule SymphonyElixir.CoreTest do
     assert Orchestrator.select_worker_host_for_test(state, "worker-a") == "worker-a"
   end
 
+  test "platform-constrained issues select only compatible ssh hosts" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      worker_ssh_hosts: ["greenie", "ubuntu", "macos", "windows"],
+      worker_host_platforms: %{
+        "greenie" => "linux",
+        "ubuntu" => "linux",
+        "macos" => "macos",
+        "windows" => "windows"
+      },
+      worker_max_concurrent_agents_per_host: 1
+    )
+
+    state = %Orchestrator.State{running: %{}}
+
+    assert Orchestrator.select_worker_host_for_test(
+             state,
+             %Issue{labels: ["platform-macos"]},
+             nil
+           ) == "macos"
+
+    assert Orchestrator.select_worker_host_for_test(
+             state,
+             %Issue{labels: ["platform-windows"]},
+             "greenie"
+           ) == "windows"
+
+    assert Orchestrator.select_worker_host_for_test(
+             state,
+             %Issue{labels: ["platform-linux"]},
+             nil
+           ) == "greenie"
+  end
+
+  test "platform-constrained issues wait when compatible hosts are full or invalid" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      worker_ssh_hosts: ["greenie", "macos"],
+      worker_host_platforms: %{"greenie" => "linux", "macos" => "macos"},
+      worker_max_concurrent_agents_per_host: 1
+    )
+
+    state = %Orchestrator.State{running: %{"issue-1" => %{worker_host: "macos"}}}
+
+    assert Orchestrator.select_worker_host_for_test(
+             state,
+             %Issue{labels: ["platform-macos"]},
+             nil
+           ) == :no_worker_capacity
+
+    assert Orchestrator.select_worker_host_for_test(
+             %Orchestrator.State{running: %{}},
+             %Issue{labels: ["platform-macos", "platform-linux"]},
+             nil
+           ) == :no_worker_capacity
+  end
+
   defp assert_due_in_range(due_at_ms, min_remaining_ms, max_remaining_ms) do
     remaining_ms = due_at_ms - System.monotonic_time(:millisecond)
 

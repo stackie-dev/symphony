@@ -129,14 +129,43 @@ defmodule SymphonyElixir.Config.Schema do
     @primary_key false
     embedded_schema do
       field(:ssh_hosts, {:array, :string}, default: [])
+      field(:host_platforms, :map, default: %{})
       field(:max_concurrent_agents_per_host, :integer)
     end
 
     @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
     def changeset(schema, attrs) do
       schema
-      |> cast(attrs, [:ssh_hosts, :max_concurrent_agents_per_host], empty_values: [])
+      |> cast(attrs, [:ssh_hosts, :host_platforms, :max_concurrent_agents_per_host], empty_values: [])
+      |> update_change(:host_platforms, &normalize_host_platforms/1)
+      |> validate_host_platforms()
       |> validate_number(:max_concurrent_agents_per_host, greater_than: 0)
+    end
+
+    defp normalize_host_platforms(platforms) when is_map(platforms) do
+      Map.new(platforms, fn {host, platform} ->
+        {String.trim(to_string(host)), platform |> to_string() |> String.trim() |> String.downcase()}
+      end)
+    end
+
+    defp validate_host_platforms(changeset) do
+      platforms = get_field(changeset, :host_platforms, %{})
+      ssh_hosts = get_field(changeset, :ssh_hosts, [])
+
+      errors =
+        Enum.flat_map(platforms, fn {host, platform} ->
+          cond do
+            host == "" -> [host_platforms: "host aliases must not be blank"]
+            host not in ssh_hosts -> [host_platforms: "contains an alias not present in ssh_hosts"]
+            platform not in ["linux", "macos", "windows"] ->
+              [host_platforms: "platforms must be linux, macos, or windows"]
+
+            true ->
+              []
+          end
+        end)
+
+      Enum.reduce(errors, changeset, fn {field, message}, acc -> add_error(acc, field, message) end)
     end
   end
 

@@ -440,6 +440,23 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     refute Issue.routable?(%{issue | dispatchable: false}, ["symphony"])
   end
 
+  test "tracker issue platform labels are normalized and fail closed" do
+    assert Issue.required_platform(%Issue{labels: []}) == {:ok, nil}
+    assert Issue.required_platform(%Issue{labels: [" Platform-MacOS "]}) == {:ok, "macos"}
+    assert Issue.required_platform(%Issue{labels: ["platform-windows"]}) == {:ok, "windows"}
+    assert Issue.required_platform(%Issue{labels: ["platform-linux"]}) == {:ok, "linux"}
+
+    assert Issue.required_platform(%Issue{labels: ["platform-plan9"]}) ==
+             {:error, :invalid_platform_labels}
+
+    assert Issue.required_platform(%Issue{labels: ["platform-linux", "platform-macos"]}) ==
+             {:error, :invalid_platform_labels}
+
+    refute Issue.routable?(%Issue{labels: ["symphony", "platform-plan9"], dispatchable: true}, [
+             "symphony"
+           ])
+  end
+
   test "linear client normalizes blockers from inverse relations" do
     raw_issue = %{
       "id" => "issue-1",
@@ -1324,6 +1341,30 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     write_workflow_file!(Workflow.workflow_file_path(), worker_max_concurrent_agents_per_host: 2)
     assert :ok = Config.validate!()
     assert Config.settings!().worker.max_concurrent_agents_per_host == 2
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      worker_ssh_hosts: ["worker-mac"],
+      worker_host_platforms: %{"worker-mac" => " MACOS "}
+    )
+
+    assert :ok = Config.validate!()
+    assert Config.settings!().worker.host_platforms == %{"worker-mac" => "macos"}
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      worker_ssh_hosts: ["worker-mac"],
+      worker_host_platforms: %{"unknown" => "macos"}
+    )
+
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "worker.host_platforms"
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      worker_ssh_hosts: ["worker-mac"],
+      worker_host_platforms: %{"worker-mac" => "plan9"}
+    )
+
+    assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+    assert message =~ "worker.host_platforms"
   end
 
   test "schema helpers cover custom type and state limit validation" do

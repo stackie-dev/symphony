@@ -402,9 +402,16 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   @doc false
-  @spec select_worker_host_for_test(term(), String.t() | nil) :: String.t() | nil | :no_worker_capacity
+  @spec select_worker_host_for_test(term(), String.t() | nil) ::
+          String.t() | nil | :no_worker_capacity
   def select_worker_host_for_test(%State{} = state, preferred_worker_host) do
-    select_worker_host(state, preferred_worker_host)
+    select_worker_host(state, %Issue{labels: []}, preferred_worker_host)
+  end
+
+  @spec select_worker_host_for_test(term(), Issue.t(), String.t() | nil) ::
+          String.t() | nil | :no_worker_capacity
+  def select_worker_host_for_test(%State{} = state, %Issue{} = issue, preferred_worker_host) do
+    select_worker_host(state, issue, preferred_worker_host)
   end
 
   defp reconcile_running_issue_states([], state, _active_states, _terminal_states), do: state
@@ -825,7 +832,7 @@ defmodule SymphonyElixir.Orchestrator do
       !Map.has_key?(blocked, issue.id) and
       available_slots(state) > 0 and
       state_slots_available?(issue, running) and
-      worker_slots_available?(state)
+      worker_slots_available?(state, issue)
   end
 
   defp should_dispatch_issue?(_issue, _state, _active_states, _terminal_states), do: false
@@ -940,7 +947,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host) do
     recipient = self()
 
-    case select_worker_host(state, preferred_worker_host) do
+    case select_worker_host(state, issue, preferred_worker_host) do
       :no_worker_capacity ->
         Logger.debug("No SSH worker slots available for #{issue_context(issue)} preferred_worker_host=#{inspect(preferred_worker_host)}")
         state
@@ -1181,7 +1188,7 @@ defmodule SymphonyElixir.Orchestrator do
   defp handle_active_retry(state, issue, attempt, metadata) do
     if retry_candidate_issue?(issue, terminal_state_set()) and
          dispatch_slots_available?(issue, state) and
-         worker_slots_available?(state, metadata[:worker_host]) do
+         worker_slots_available?(state, issue, metadata[:worker_host]) do
       case refresh_issue_for_dispatch(issue) do
         {:ok, %Issue{} = refreshed_issue} ->
           {:noreply, do_dispatch_issue(state, refreshed_issue, attempt, metadata[:worker_host])}
@@ -1278,13 +1285,21 @@ defmodule SymphonyElixir.Orchestrator do
     Map.put(running_entry, key, value)
   end
 
-  defp select_worker_host(%State{} = state, preferred_worker_host) do
-    case Config.settings!().worker.ssh_hosts do
+  defp select_worker_host(%State{} = state, %Issue{} = issue, preferred_worker_host) do
+    worker = Config.settings!().worker
+
+    case worker.ssh_hosts do
       [] ->
-        nil
+        case Issue.required_platform(issue) do
+          {:ok, nil} -> nil
+          _ -> :no_worker_capacity
+        end
 
       hosts ->
-        available_hosts = Enum.filter(hosts, &worker_host_slots_available?(state, &1))
+        available_hosts =
+          hosts
+          |> Enum.filter(&worker_host_compatible?(issue, &1, worker.host_platforms))
+          |> Enum.filter(&worker_host_slots_available?(state, &1))
 
         cond do
           available_hosts == [] ->
@@ -1296,6 +1311,15 @@ defmodule SymphonyElixir.Orchestrator do
           true ->
             least_loaded_worker_host(state, available_hosts)
         end
+    end
+  end
+
+  defp worker_host_compatible?(%Issue{} = issue, host, host_platforms)
+       when is_binary(host) and is_map(host_platforms) do
+    case Issue.required_platform(issue) do
+      {:ok, nil} -> true
+      {:ok, platform} -> Map.get(host_platforms, host) == platform
+      {:error, :invalid_platform_labels} -> false
     end
   end
 
@@ -1322,12 +1346,12 @@ defmodule SymphonyElixir.Orchestrator do
     end)
   end
 
-  defp worker_slots_available?(%State{} = state) do
-    select_worker_host(state, nil) != :no_worker_capacity
+  defp worker_slots_available?(%State{} = state, %Issue{} = issue) do
+    select_worker_host(state, issue, nil) != :no_worker_capacity
   end
 
-  defp worker_slots_available?(%State{} = state, preferred_worker_host) do
-    select_worker_host(state, preferred_worker_host) != :no_worker_capacity
+  defp worker_slots_available?(%State{} = state, %Issue{} = issue, preferred_worker_host) do
+    select_worker_host(state, issue, preferred_worker_host) != :no_worker_capacity
   end
 
   defp worker_host_slots_available?(%State{} = state, worker_host) when is_binary(worker_host) do
