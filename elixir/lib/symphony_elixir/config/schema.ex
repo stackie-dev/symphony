@@ -160,10 +160,18 @@ defmodule SymphonyElixir.Config.Schema do
       errors =
         Enum.flat_map(platforms, fn {host, platform} ->
           cond do
-            not is_binary(host) -> [host_platforms: "host aliases must be strings"]
-            host == "" -> [host_platforms: "host aliases must not be blank"]
-            host not in ssh_hosts -> [host_platforms: "contains an alias not present in ssh_hosts"]
-            not is_binary(platform) -> [host_platforms: "platforms must be strings"]
+            not is_binary(host) ->
+              [host_platforms: "host aliases must be strings"]
+
+            host == "" ->
+              [host_platforms: "host aliases must not be blank"]
+
+            host not in ssh_hosts ->
+              [host_platforms: "contains an alias not present in ssh_hosts"]
+
+            not is_binary(platform) ->
+              [host_platforms: "platforms must be strings"]
+
             platform not in ["linux", "macos", "windows"] ->
               [host_platforms: "platforms must be linux, macos, or windows"]
 
