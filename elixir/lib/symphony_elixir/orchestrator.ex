@@ -1208,20 +1208,7 @@ defmodule SymphonyElixir.Orchestrator do
          dispatch_slots_available?(issue, state) do
       case refresh_issue_for_dispatch(issue) do
         {:ok, %Issue{} = refreshed_issue} ->
-          if worker_slots_available?(state, refreshed_issue, metadata[:worker_host]) do
-            {:noreply, do_dispatch_issue(state, refreshed_issue, attempt, metadata[:worker_host])}
-          else
-            {:noreply,
-             schedule_issue_retry(
-               state,
-               issue.id,
-               attempt + 1,
-               Map.merge(metadata, %{
-                 identifier: refreshed_issue.identifier,
-                 error: "no compatible worker capacity"
-               })
-             )}
-          end
+          handle_refreshed_retry(state, refreshed_issue, attempt, metadata)
 
         {:skip, :missing} ->
           {:noreply, release_issue_claim(state, issue.id)}
@@ -1252,6 +1239,23 @@ defmodule SymphonyElixir.Orchestrator do
          Map.merge(metadata, %{
            identifier: issue.identifier,
            error: "no available orchestrator slots"
+         })
+       )}
+    end
+  end
+
+  defp handle_refreshed_retry(state, issue, attempt, metadata) do
+    if worker_slots_available?(state, issue, metadata[:worker_host]) do
+      {:noreply, do_dispatch_issue(state, issue, attempt, metadata[:worker_host])}
+    else
+      {:noreply,
+       schedule_issue_retry(
+         state,
+         issue.id,
+         attempt + 1,
+         Map.merge(metadata, %{
+           identifier: issue.identifier,
+           error: "no compatible worker capacity"
          })
        )}
     end
@@ -1327,9 +1331,10 @@ defmodule SymphonyElixir.Orchestrator do
 
       hosts ->
         available_hosts =
-          hosts
-          |> Enum.filter(&worker_host_compatible?(issue, &1, worker.host_platforms))
-          |> Enum.filter(&worker_host_slots_available?(state, &1))
+          Enum.filter(hosts, fn host ->
+            worker_host_compatible?(issue, host, worker.host_platforms) and
+              worker_host_slots_available?(state, host)
+          end)
 
         cond do
           available_hosts == [] ->
