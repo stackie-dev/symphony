@@ -10,6 +10,8 @@ defmodule SymphonyElixir.Linear.AdmissionConnection do
   @spec fetch(String.t(), :labels | :children | :inverseRelations, reader()) :: {:ok, [map()]} | {:error, atom()}
   def fetch(id, field, reader), do: page(id, field, reader, nil, MapSet.new(), [], 100)
 
+  @spec page(String.t(), atom(), reader(), String.t() | nil, MapSet.t(String.t()), [[map()]], non_neg_integer()) ::
+          {:ok, [map()]} | {:error, atom()}
   defp page(_id, _field, _reader, _cursor, _seen, _acc, 0), do: {:error, :pagination_limit}
 
   defp page(id, field, reader, cursor, seen, acc, remaining) do
@@ -30,6 +32,8 @@ defmodule SymphonyElixir.Linear.AdmissionConnection do
     end
   end
 
+  @spec advance(String.t(), atom(), reader(), boolean(), term(), MapSet.t(String.t()), [[map()]], pos_integer()) ::
+          {:ok, [map()]} | {:error, atom()}
   defp advance(_id, _field, _reader, false, _next, _seen, acc, _remaining) do
     {:ok, acc |> Enum.reverse() |> Enum.concat()}
   end
