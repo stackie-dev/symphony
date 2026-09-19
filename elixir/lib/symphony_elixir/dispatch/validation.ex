@@ -1,0 +1,75 @@
+defmodule SymphonyElixir.Dispatch.Validation do
+  @moduledoc false
+  alias SymphonyElixir.Dispatch.{Attempt, Snapshot, Worker}
+  alias SymphonyElixir.Tracker.Issue
+  @type result :: :ok | {:error, {:incomplete | :invalid, :snapshot | :worker | :attempt}}
+
+  @spec snapshot(term()) :: result()
+  def snapshot(%Snapshot{version: version}) when version != 1, do: invalid(:snapshot)
+  def snapshot(%Snapshot{complete: false}), do: incomplete(:snapshot)
+
+  def snapshot(%Snapshot{issue: %Issue{} = issue} = value) do
+    required = [value.canonical_issue_id, value.child_ids, value.repository, value.route, value.observed_at_ms, value.scope, issue.id, issue.state, issue.labels, issue.blocked_by]
+
+    cond do
+      Enum.any?(required, &is_nil/1) -> incomplete(:snapshot)
+      not is_list(issue.blocked_by) -> invalid(:snapshot)
+      Enum.any?(issue.blocked_by, &(is_map(&1) and is_nil(Map.get(&1, :state)))) -> incomplete(:snapshot)
+      value.complete != true -> invalid(:snapshot)
+      not pair?(value.scope) -> invalid(:snapshot)
+      not Enum.all?([value.canonical_issue_id, issue.id, issue.state, value.repository, value.route], &text?/1) -> invalid(:snapshot)
+      not list_of?(value.child_ids, &text?/1) or not list_of?(issue.labels, &text?/1) -> invalid(:snapshot)
+      not list_of?(issue.blocked_by, &blocker?/1) -> invalid(:snapshot)
+      not count?(value.observed_at_ms) -> invalid(:snapshot)
+      true -> :ok
+    end
+  end
+
+  def snapshot(%Snapshot{issue: nil}), do: incomplete(:snapshot)
+  def snapshot(nil), do: incomplete(:snapshot)
+  def snapshot(_), do: invalid(:snapshot)
+
+  @spec worker(term()) :: result()
+  def worker(%Worker{version: version}) when version != 1, do: invalid(:worker)
+
+  def worker(%Worker{} = value) do
+    cond do
+      Enum.any?([value.id, value.os, value.available, value.slots, value.observed_at_ms], &is_nil/1) -> incomplete(:worker)
+      not text?(value.id) or value.os not in [:linux, :macos, :windows, :unknown] -> invalid(:worker)
+      not is_boolean(value.available) or not count?(value.slots) or not count?(value.observed_at_ms) -> invalid(:worker)
+      true -> :ok
+    end
+  end
+
+  def worker(nil), do: incomplete(:worker)
+  def worker(_), do: invalid(:worker)
+
+  @spec attempt(term()) :: result()
+  def attempt(%Attempt{version: version}) when version != 1, do: invalid(:attempt)
+  def attempt(%Attempt{complete: false}), do: incomplete(:attempt)
+
+  def attempt(%Attempt{} = value) do
+    cond do
+      Enum.any?([value.role, value.active_writers, value.deliveries, value.regression, value.observed_at_ms], &is_nil/1) -> incomplete(:attempt)
+      value.complete != true or value.role not in [:writer, :integration, :repair] -> invalid(:attempt)
+      not count?(value.active_writers) or not count?(value.observed_at_ms) -> invalid(:attempt)
+      not is_boolean(value.regression) or not list_of?(value.deliveries, &pair?/1) -> invalid(:attempt)
+      not optional_text?(value.preferred_host) or not optional_text?(value.integration_owner) -> invalid(:attempt)
+      true -> :ok
+    end
+  end
+
+  def attempt(nil), do: incomplete(:attempt)
+  def attempt(_), do: invalid(:attempt)
+
+  defp text?(value), do: is_binary(value) and byte_size(String.trim(value)) > 0
+  defp optional_text?(value), do: is_nil(value) or text?(value)
+  defp count?(value), do: is_integer(value) and value >= 0
+  defp pair?({left, right}), do: text?(left) and text?(right)
+  defp pair?(_), do: false
+  defp list_of?(value, predicate), do: is_list(value) and Enum.all?(value, predicate)
+  defp blocker?(%{id: id, state: state}), do: text?(id) and text?(state)
+  defp blocker?(_), do: false
+  defp invalid(kind), do: {:error, {:invalid, kind}}
+  defp incomplete(kind), do: {:error, {:incomplete, kind}}
+end

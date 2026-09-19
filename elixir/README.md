@@ -400,6 +400,12 @@ actively running subagents, which is very useful during development.
 Launch `codex` in your repo, give it the URL to the Symphony repo, and ask it to set things up for
 you.
 
+## Dispatch contract preparation
+
+The versioned [dispatch observation contract](docs/dispatch-contract.md) separates
+structural evidence from eligibility and launch authority. It is not yet wired
+into the scheduler and does not change current dispatch behavior.
+
 ## License
 
 This project is licensed under the [Apache License 2.0](../LICENSE).
