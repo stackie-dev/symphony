@@ -1,7 +1,7 @@
 defmodule SymphonyElixir.Linear.AdmissionMetadataTest do
   use ExUnit.Case, async: true
-  alias SymphonyElixir.Linear.AdmissionMetadata
   alias SymphonyElixir.Linear.AdmissionConnection
+  alias SymphonyElixir.Linear.AdmissionMetadata
   alias SymphonyElixir.Tracker.Issue
 
   test "all labels, children and incoming blockers are collected before completeness" do
