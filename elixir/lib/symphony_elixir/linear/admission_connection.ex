@@ -8,9 +8,9 @@ defmodule SymphonyElixir.Linear.AdmissionConnection do
   @type reader :: (String.t(), map() -> {:ok, map()} | {:error, term()})
 
   @spec fetch(String.t(), :labels | :children | :inverseRelations, reader()) :: {:ok, [map()]} | {:error, atom()}
-  def fetch(id, field, reader), do: page(id, field, reader, nil, MapSet.new(), [], 100)
+  def fetch(id, field, reader), do: page(id, field, reader, nil, [], [], 100)
 
-  @spec page(String.t(), atom(), reader(), String.t() | nil, MapSet.t(String.t()), [[map()]], non_neg_integer()) ::
+  @spec page(String.t(), atom(), reader(), String.t() | nil, [String.t()], [[map()]], non_neg_integer()) ::
           {:ok, [map()]} | {:error, atom()}
   defp page(_id, _field, _reader, _cursor, _seen, _acc, 0), do: {:error, :pagination_limit}
 
@@ -32,7 +32,7 @@ defmodule SymphonyElixir.Linear.AdmissionConnection do
     end
   end
 
-  @spec advance(String.t(), atom(), reader(), boolean(), term(), MapSet.t(String.t()), [[map()]], pos_integer()) ::
+  @spec advance(String.t(), atom(), reader(), boolean(), term(), [String.t()], [[map()]], pos_integer()) ::
           {:ok, [map()]} | {:error, atom()}
   defp advance(_id, _field, _reader, false, _next, _seen, acc, _remaining) do
     {:ok, acc |> Enum.reverse() |> Enum.concat()}
@@ -41,8 +41,8 @@ defmodule SymphonyElixir.Linear.AdmissionConnection do
   defp advance(id, field, reader, true, next, seen, acc, remaining) do
     cond do
       not is_binary(next) or next == "" -> {:error, :incomplete_connection}
-      MapSet.member?(seen, next) -> {:error, :pagination_cycle}
-      true -> page(id, field, reader, next, MapSet.put(seen, next), acc, remaining - 1)
+      next in seen -> {:error, :pagination_cycle}
+      true -> page(id, field, reader, next, [next | seen], acc, remaining - 1)
     end
   end
 
