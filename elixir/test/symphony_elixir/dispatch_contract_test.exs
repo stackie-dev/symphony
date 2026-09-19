@@ -29,6 +29,7 @@ defmodule SymphonyElixir.Dispatch.ContractTest do
     malformed = %{snapshot | child_ids: [42]}
     assert {:error, {:incomplete, :snapshot}} = Contract.validate(missing, worker, attempt)
     assert {:error, {:invalid, :snapshot}} = Contract.validate(malformed, worker, attempt)
+
     for state <- ["Done", "Todo"] do
       observed = %{snapshot | issue: %{snapshot.issue | blocked_by: [%{id: "blocker", state: state}]}}
       assert {:ok, _} = Contract.validate(observed, worker, attempt)
