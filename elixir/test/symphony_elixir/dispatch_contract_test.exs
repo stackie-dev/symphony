@@ -29,6 +29,10 @@ defmodule SymphonyElixir.Dispatch.ContractTest do
     malformed = %{snapshot | child_ids: [42]}
     assert {:error, {:incomplete, :snapshot}} = Contract.validate(missing, worker, attempt)
     assert {:error, {:invalid, :snapshot}} = Contract.validate(malformed, worker, attempt)
+    for state <- ["Done", "Todo"] do
+      observed = %{snapshot | issue: %{snapshot.issue | blocked_by: [%{id: "blocker", state: state}]}}
+      assert {:ok, _} = Contract.validate(observed, worker, attempt)
+    end
   end
 
   test "structural validation does not decide eligibility, placement, age or backpressure" do
@@ -56,7 +60,10 @@ defmodule SymphonyElixir.Dispatch.ContractTest do
     {snapshot, _, _} = observations()
     assert {"linear", "org-1", "issue-1"} = Contract.identity(snapshot)
     assert Contract.identity(snapshot) == Contract.identity(%{snapshot | route: "symphony-other"})
-    assert Contract.identity(snapshot) == Contract.identity(%{snapshot | issue: %{snapshot.issue | id: "another-board-entry"}})
+
+    assert Contract.identity(snapshot) ==
+             Contract.identity(%{snapshot | issue: %{snapshot.issue | id: "another-board-entry"}})
+
     refute Contract.identity(snapshot) == Contract.identity(%{snapshot | scope: {"linear", "org-2"}})
   end
 
@@ -77,7 +84,12 @@ defmodule SymphonyElixir.Dispatch.ContractTest do
 
     assert {:error, {:incomplete, :worker}} = Contract.validate(snapshot, %{worker | id: nil}, attempt)
 
-    for invalid <- [%{attempt | version: 2}, %{attempt | active_writers: -1}, %{attempt | regression: :yes}, %{attempt | preferred_host: ""}] do
+    for invalid <- [
+          %{attempt | version: 2},
+          %{attempt | active_writers: -1},
+          %{attempt | regression: :yes},
+          %{attempt | preferred_host: ""}
+        ] do
       assert {:error, {:invalid, :attempt}} = Contract.validate(snapshot, worker, invalid)
     end
 
@@ -87,11 +99,24 @@ defmodule SymphonyElixir.Dispatch.ContractTest do
   test "malformed tracker collections and flags are not accepted" do
     {snapshot, worker, attempt} = observations()
 
-    for issue <- [%{snapshot.issue | blocked_by: :missing}, %{snapshot.issue | blocked_by: [42]}, %{snapshot.issue | labels: [42]}, %{snapshot.issue | state: ""}] do
+    for issue <- [
+          %{snapshot.issue | blocked_by: :missing},
+          %{snapshot.issue | blocked_by: [42]},
+          %{snapshot.issue | labels: [42]},
+          %{snapshot.issue | state: ""}
+        ] do
       assert {:error, {:invalid, :snapshot}} = Contract.validate(%{snapshot | issue: issue}, worker, attempt)
     end
 
     assert {:error, {:invalid, :snapshot}} = Contract.validate(%{snapshot | complete: :yes}, worker, attempt)
+    assert {:error, {:invalid, :snapshot}} = Contract.validate(%{snapshot | project_id: 42}, worker, attempt)
+
+    assert {:ok, _} =
+             Contract.validate(
+               %{snapshot | project_id: "project-1", issue: %{snapshot.issue | assignee_id: "agent-1"}},
+               worker,
+               attempt
+             )
   end
 
   defp observations do
@@ -107,7 +132,16 @@ defmodule SymphonyElixir.Dispatch.ContractTest do
     }
 
     worker = %Worker{id: "host-1", os: :linux, available: true, slots: 1, observed_at_ms: 100}
-    attempt = %Attempt{role: :writer, active_writers: 0, deliveries: [], regression: false, complete: true, observed_at_ms: 100}
+
+    attempt = %Attempt{
+      role: :writer,
+      active_writers: 0,
+      deliveries: [],
+      regression: false,
+      complete: true,
+      observed_at_ms: 100
+    }
+
     {snapshot, worker, attempt}
   end
 end

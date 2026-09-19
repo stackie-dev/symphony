@@ -21,6 +21,9 @@ The types live in `lib/symphony_elixir/dispatch/observations.ex`:
   Missing native identity is incomplete evidence. `child_ids`, repository and intended
   route are explicit. The tracker adapter may set `complete: true` only after all
   admission-relevant pages succeed. Nil relation data is never an empty list.
+  `project_id` and the existing issue's `assignee_id` may be nil to represent an
+  observed unassigned/unprojected issue; eligibility rejects those cases. The
+  completeness flag must remain false if either field was not actually inspected.
 - `Worker` has an explicit configured host identity, OS, availability and slots.
   `:unknown`, offline and zero capacity are structurally valid observations but
   are not usable placements. A hostname is not OS evidence.
