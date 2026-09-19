@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "policy": {"repositories": ["parent", "stackie"], "platform": "linux", "routeLabel": "symphony-canary"},
+  "base": {"state": "Todo", "labels": ["repo:parent", "symphony-canary"], "children": [], "blockers": [], "assigneeId": "worker", "projectId": "project"},
+  "cases": [
+    {"name": "native leaf", "patch": {}, "ready": true},
+    {"name": "other known repository", "patch": {"labels": ["repo:stackie", "symphony-canary"]}, "ready": true},
+    {"name": "resume", "patch": {"state": "In Progress"}, "ready": true},
+    {"name": "done blocker", "patch": {"blockers": [{"id": "b", "state": "Done"}]}, "ready": true},
+    {"name": "unfinished", "patch": {"blockers": [{"id": "b", "state": "In Review"}]}, "ready": false},
+    {"name": "canceled", "patch": {"blockers": [{"id": "b", "state": "Canceled"}]}, "ready": false},
+    {"name": "duplicate", "patch": {"blockers": [{"id": "b", "state": "Duplicate"}]}, "ready": false},
+    {"name": "missing blocker state", "patch": {"blockers": [{"id": "b"}]}, "ready": false},
+    {"name": "aggregate", "patch": {"children": ["child"]}, "ready": false},
+    {"name": "missing child evidence", "patch": {"children": null}, "ready": false},
+    {"name": "blocked", "patch": {"labels": ["repo:parent", "symphony-canary", "blocked"]}, "ready": false},
+    {"name": "stronger review", "patch": {"labels": ["repo:parent", "symphony-canary", "needs-stronger-review"]}, "ready": false},
+    {"name": "release waiting", "patch": {"labels": ["repo:parent", "symphony-canary", "release-waiting"]}, "ready": false},
+    {"name": "unknown repository", "patch": {"labels": ["repo:unknown", "symphony-canary"]}, "ready": false},
+    {"name": "ambiguous repository", "patch": {"labels": ["repo:parent", "repo:stackie", "symphony-canary"]}, "ready": false},
+    {"name": "missing repository", "patch": {"labels": ["symphony-canary"]}, "ready": false},
+    {"name": "wrong route", "patch": {"labels": ["repo:parent", "symphony-other"]}, "ready": false},
+    {"name": "two routes", "patch": {"labels": ["repo:parent", "symphony-canary", "symphony"]}, "ready": false},
+    {"name": "missing route", "patch": {"labels": ["repo:parent"]}, "ready": false},
+    {"name": "inactive", "patch": {"state": "Backlog"}, "ready": false},
+    {"name": "unassigned", "patch": {"assigneeId": null}, "ready": false},
+    {"name": "no project", "patch": {"projectId": null}, "ready": false}
+  ]
+}
