@@ -18,7 +18,9 @@ defmodule SymphonyElixir.Linear.AdmissionMetadataTest do
           page("inverseRelations", blockers, next?, "next")
 
         String.contains?(query, "children(") ->
-          page("children", [%{"id" => "child"}], false, nil)
+          if is_nil(vars.after),
+            do: page("children", [], true, "children-next"),
+            else: page("children", [%{"id" => "child"}], false, nil)
 
         String.contains?(query, "labels(") ->
           page("labels", [%{"name" => "repo:parent"}], false, nil)
@@ -82,7 +84,13 @@ defmodule SymphonyElixir.Linear.AdmissionMetadataTest do
 
     assert {:error, :pagination_limit} = AdmissionConnection.fetch("native", :labels, reader)
 
-    for response <- [{:ok, %{}}, {:ok, %{"errors" => ["private"]}}, {:error, {"secret", :offline}}] do
+    for response <- [
+          {:ok, %{}},
+          {:ok, %{"errors" => ["private"]}},
+          {:ok, %{"data" => %{"issue" => %{"id" => "native", "labels" => %{}}}}},
+          {:error, {"secret", :offline}},
+          :unexpected_callback_result
+        ] do
       assert {:error, :incomplete_connection} =
                AdmissionConnection.fetch("native", :labels, fn _, _ -> response end)
     end
