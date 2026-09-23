@@ -161,6 +161,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
       assert {:ok, canonical_workspace} = SymphonyElixir.PathSafety.canonicalize(stale_workspace)
+
       assert {:error, {:workspace_path_not_directory, ^canonical_workspace}} =
                Workspace.create_for_issue("MT-STALE")
 
