@@ -7,6 +7,8 @@ defmodule SymphonyElixir.WorkspaceGitSupport do
     {seed, origin} = origin_paths(path)
     create_origin!(seed, origin)
     git!(Path.dirname(path), ["clone", origin, path])
+    git!(path, ["config", "user.name", "Symphony Test"])
+    git!(path, ["config", "user.email", "symphony-test@example.com"])
     File.rm_rf!(seed)
     path
   end

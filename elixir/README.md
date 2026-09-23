@@ -33,6 +33,7 @@ disposable Git checkout. Tracked or untracked changes, commits ahead of the work
 configured upstream, an inspection failure, or a failed `before_remove` hook keep the workspace at
 the same issue path and branch so the work can be resumed or reviewed. Workspaces whose ownership
 cannot be verified are retained.
+A pre-existing file or symlink at the issue path is reported and left intact rather than replaced.
 
 If Codex reports that operator input, approval, or MCP elicitation is required, Symphony keeps the
 issue claimed and exposes it as blocked in the runtime state, JSON API, and dashboard. Blocked
