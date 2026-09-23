@@ -359,6 +359,7 @@ defmodule SymphonyElixir.CoreTest do
 
     hook_marker = Path.join(test_root, "before-run-started")
     hook_fifo = Path.join(test_root, "before-run-blocker")
+    workspace = Path.join(test_root, "MT-#{issue_suffix}")
     runtime_supervisor_name = Module.concat(__MODULE__, "AgentRuntimeSupervisor#{issue_suffix}")
     task_supervisor_name = Module.concat(__MODULE__, "TaskSupervisor#{issue_suffix}")
     orchestrator_name = Module.concat(__MODULE__, "RestartOrchestrator#{issue_suffix}")
@@ -398,7 +399,7 @@ defmodule SymphonyElixir.CoreTest do
       tracker_kind: "memory",
       workspace_root: test_root,
       poll_interval_ms: 10,
-      hook_before_run: "mkfifo \"#{hook_fifo}\"; : > \"#{hook_marker}\"; read _ < \"#{hook_fifo}\"",
+      hook_before_run: "printf 'preserve across restart\\n' > restart-work.txt; mkfifo \"#{hook_fifo}\"; : > \"#{hook_marker}\"; read _ < \"#{hook_fifo}\"",
       hook_timeout_ms: 60_000
     )
 
@@ -430,6 +431,7 @@ defmodule SymphonyElixir.CoreTest do
     assert is_pid(first_worker_pid)
     assert Process.alive?(first_worker_pid)
     assert eventually_value(fn -> if File.exists?(hook_marker), do: true end)
+    assert File.read!(Path.join(workspace, "restart-work.txt")) == "preserve across restart\n"
 
     monitor_ref = Process.monitor(orchestrator_pid)
     Process.exit(orchestrator_pid, :kill)
@@ -455,6 +457,7 @@ defmodule SymphonyElixir.CoreTest do
     assert is_pid(restarted_task_supervisor_pid)
     assert is_map(GenServer.call(restarted_pid, :snapshot))
     refute Process.alive?(first_worker_pid)
+    assert File.read!(Path.join(workspace, "restart-work.txt")) == "preserve across restart\n"
 
     second_worker_pid =
       eventually_value(fn ->
@@ -560,6 +563,7 @@ defmodule SymphonyElixir.CoreTest do
       )
 
       File.mkdir_p!(workspace)
+      SymphonyElixir.WorkspaceGitSupport.initialize_clean_checkout!(workspace)
       {:ok, task_supervisor} = Task.Supervisor.start_link()
 
       {:ok, agent_pid} =
@@ -637,6 +641,7 @@ defmodule SymphonyElixir.CoreTest do
       )
 
       File.mkdir_p!(old_workspace)
+      SymphonyElixir.WorkspaceGitSupport.initialize_clean_checkout!(old_workspace)
       File.mkdir_p!(new_workspace)
 
       agent_pid =
