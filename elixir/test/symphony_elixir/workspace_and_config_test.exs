@@ -96,6 +96,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       assert {:ok, slash_workspace} = Workspace.create_for_issue(slash_issue)
       assert {:ok, ^slash_workspace} = Workspace.create_for_issue("team/a-1")
       assert {:ok, underscore_workspace} = Workspace.create_for_issue(underscore_issue)
+      SymphonyElixir.WorkspaceGitSupport.initialize_clean_checkout!(slash_workspace)
 
       refute slash_workspace == underscore_workspace
       assert Path.basename(underscore_workspace) == "team_a-1"
@@ -145,7 +146,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     end
   end
 
-  test "workspace replaces stale non-directory paths" do
+  test "workspace preserves a non-directory path instead of deleting it" do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
@@ -160,9 +161,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
       assert {:ok, canonical_workspace} = SymphonyElixir.PathSafety.canonicalize(stale_workspace)
-      assert {:ok, workspace} = Workspace.create_for_issue("MT-STALE")
-      assert workspace == canonical_workspace
-      assert File.dir?(workspace)
+
+      assert {:error, {:workspace_path_not_directory, ^canonical_workspace}} =
+               Workspace.create_for_issue("MT-STALE")
+
+      assert File.read!(stale_workspace) == "old state\n"
+      refute File.dir?(stale_workspace)
     after
       File.rm_rf(workspace_root)
     end
@@ -324,7 +328,13 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       assert {:error, {:workspace_hook_failed, "after_create", 17, _output}} =
                Workspace.create_for_issue("MT-FAIL-RETRY")
 
-      assert {:ok, workspace} = Workspace.create_for_issue("MT-FAIL-RETRY")
+      {:ok, workspace} =
+        SymphonyElixir.PathSafety.canonicalize(Path.join(workspace_root, "MT-FAIL-RETRY"))
+
+      assert File.read!(Path.join(workspace, "partial.txt")) == "partial"
+
+      assert {:ok, ^workspace} = Workspace.create_for_issue("MT-FAIL-RETRY")
+      assert File.read!(Path.join(workspace, "partial.txt")) == "partial"
       assert File.read!(Path.join(workspace, "READY")) == "ready"
       assert String.split(String.trim(File.read!(attempt_log)), "\n") == ["attempt", "attempt"]
     after
@@ -385,10 +395,10 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       target_workspace = Path.join(workspace_root, "S_1")
       untouched_workspace = Path.join(workspace_root, "OTHER-#{System.unique_integer([:positive])}")
 
-      File.mkdir_p!(target_workspace)
+      File.mkdir_p!(workspace_root)
       File.mkdir_p!(untouched_workspace)
-      File.write!(Path.join(target_workspace, "marker.txt"), "stale")
       File.write!(Path.join(untouched_workspace, "marker.txt"), "keep")
+      SymphonyElixir.WorkspaceGitSupport.clean_checkout!(target_workspace)
 
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
@@ -852,14 +862,18 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
              Orchestrator.revalidate_issue_for_dispatch_for_test(stale_issue, fetcher)
   end
 
-  test "workspace remove returns error information for missing directory" do
-    random_path =
+  test "workspace remove treats a missing path under its root as already removed" do
+    workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "symphony-elixir-missing-#{System.unique_integer([:positive])}"
+        "symphony-elixir-missing-root-#{System.unique_integer([:positive])}"
       )
 
-    assert {:ok, []} = Workspace.remove(random_path)
+    File.mkdir_p!(workspace_root)
+    on_exit(fn -> File.rm_rf(workspace_root) end)
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+    assert {:ok, []} = Workspace.remove(Path.join(workspace_root, "MT-MISSING"))
   end
 
   test "workspace hooks support multiline YAML scripts and run at lifecycle boundaries" do
@@ -891,6 +905,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       assert {:ok, _workspace} = Workspace.create_for_issue("MT-HOOKS")
       assert length(String.split(String.trim(File.read!(after_create_counter)), "\n")) == 1
+      SymphonyElixir.WorkspaceGitSupport.initialize_clean_checkout!(workspace)
 
       assert :ok = Workspace.remove_issue_workspaces("MT-HOOKS")
       assert File.read!(before_remove_marker) == "before_remove\n"
@@ -918,8 +933,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       )
 
       assert {:ok, workspace} = Workspace.create_for_issue("MT-HOOKS-FAIL")
-      assert :ok = Workspace.remove_issue_workspaces("MT-HOOKS-FAIL")
-      refute File.exists?(workspace)
+      SymphonyElixir.WorkspaceGitSupport.initialize_clean_checkout!(workspace)
+
+      assert {:error, {{:workspace_hook_failed, "before_remove", 17, _output}, ""}} =
+               Workspace.remove_issue_workspaces("MT-HOOKS-FAIL")
+
+      assert File.dir?(workspace)
     after
       File.rm_rf(test_root)
     end
@@ -943,26 +962,18 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       )
 
       assert {:ok, workspace} = Workspace.create_for_issue("MT-HOOKS-LARGE-FAIL")
-      assert :ok = Workspace.remove_issue_workspaces("MT-HOOKS-LARGE-FAIL")
-      refute File.exists?(workspace)
+      SymphonyElixir.WorkspaceGitSupport.initialize_clean_checkout!(workspace)
+
+      assert {:error, {{:workspace_hook_failed, "before_remove", 17, _output}, ""}} =
+               Workspace.remove_issue_workspaces("MT-HOOKS-LARGE-FAIL")
+
+      assert File.dir?(workspace)
     after
       File.rm_rf(test_root)
     end
   end
 
-  test "workspace remove continues when before_remove hook times out" do
-    previous_timeout = Application.get_env(:symphony_elixir, :workspace_hook_timeout_ms)
-
-    on_exit(fn ->
-      if is_nil(previous_timeout) do
-        Application.delete_env(:symphony_elixir, :workspace_hook_timeout_ms)
-      else
-        Application.put_env(:symphony_elixir, :workspace_hook_timeout_ms, previous_timeout)
-      end
-    end)
-
-    Application.put_env(:symphony_elixir, :workspace_hook_timeout_ms, 10)
-
+  test "workspace remove retains the checkout when before_remove times out" do
     test_root =
       Path.join(
         System.tmp_dir!(),
@@ -976,12 +987,17 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        hook_before_remove: "sleep 1"
+        hook_before_remove: "sleep 1",
+        hook_timeout_ms: 10
       )
 
       assert {:ok, workspace} = Workspace.create_for_issue("MT-HOOKS-TIMEOUT")
-      assert :ok = Workspace.remove_issue_workspaces("MT-HOOKS-TIMEOUT")
-      refute File.exists?(workspace)
+      SymphonyElixir.WorkspaceGitSupport.initialize_clean_checkout!(workspace)
+
+      assert {:error, {{:workspace_hook_timeout, "before_remove", 10}, ""}} =
+               Workspace.remove_issue_workspaces("MT-HOOKS-TIMEOUT")
+
+      assert File.dir?(workspace)
     after
       File.rm_rf(test_root)
     end
@@ -1631,6 +1647,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       case "$*" in
         *"__SYMPHONY_WORKSPACE__"*)
           printf '%s\\t%s\\t%s\\n' '__SYMPHONY_WORKSPACE__' '1' '#{workspace_path}'
+          ;;
+        *__SYMPHONY_RETENTION_REMOVED__*)
+          printf '%s\\n' '__SYMPHONY_RETENTION_REMOVED__'
+          ;;
+        *__SYMPHONY_RETENTION_SAFE__*)
+          printf '%s\\n' '__SYMPHONY_RETENTION_SAFE__'
           ;;
       esac
 
