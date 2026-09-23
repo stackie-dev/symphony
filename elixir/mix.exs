@@ -31,6 +31,13 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixir.StatusDashboard,
           SymphonyElixir.LogFile,
           SymphonyElixir.Workspace,
+          # These modules extract the previously ignored Workspace owner; retain
+          # its existing coverage classification without lowering the 100% gate.
+          SymphonyElixir.Workspace.Creation,
+          SymphonyElixir.Workspace.Hooks,
+          SymphonyElixir.Workspace.Paths,
+          SymphonyElixir.Workspace.Remote,
+          SymphonyElixir.Workspace.Retention,
           SymphonyElixirWeb.DashboardLive,
           SymphonyElixirWeb.Endpoint,
           SymphonyElixirWeb.ErrorHTML,
