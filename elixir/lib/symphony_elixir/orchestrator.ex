@@ -9,6 +9,7 @@ defmodule SymphonyElixir.Orchestrator do
 
   alias SymphonyElixir.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
   alias SymphonyElixir.Tracker.Issue
+  alias SymphonyElixir.Dispatch.Admission.Launch
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
@@ -39,6 +40,9 @@ defmodule SymphonyElixir.Orchestrator do
       claimed: MapSet.new(),
       blocked: %{},
       retry_attempts: %{},
+      dispatch_config: nil,
+      dispatch_reservations: %{},
+      dispatch_holds: %{},
       codex_totals: nil,
       codex_rate_limits: nil
     ]
@@ -65,6 +69,7 @@ defmodule SymphonyElixir.Orchestrator do
           tick_timer_ref: nil,
           tick_token: nil,
           task_supervisor: Keyword.get(opts, :task_supervisor, SymphonyElixir.TaskSupervisor),
+          dispatch_config: Keyword.get_lazy(opts, :dispatch_config, &Config.dispatch_admission/0),
           codex_totals: @empty_codex_totals,
           codex_rate_limits: nil
         }
@@ -135,6 +140,7 @@ defmodule SymphonyElixir.Orchestrator do
 
       issue_id ->
         {running_entry, state} = pop_running_entry(state, issue_id)
+        state = dispatch_stopped(state, issue_id)
         state = record_session_completion_totals(state, running_entry)
         session_id = running_entry_session_id(running_entry)
 
@@ -946,7 +952,14 @@ defmodule SymphonyElixir.Orchestrator do
         state
 
       worker_host ->
-        spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host)
+        case Launch.acquire(dispatch_config(state), issue.id, state.dispatch_reservations[issue.id]) do
+          {:ok, handle} ->
+            state = %{state | dispatch_reservations: Map.put(state.dispatch_reservations, issue.id, handle), dispatch_holds: Map.delete(state.dispatch_holds, issue.id)}
+            spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host)
+
+          {:error, reason} ->
+            %{state | dispatch_holds: Map.put(state.dispatch_holds, issue.id, reason)}
+        end
     end
   end
 
@@ -991,6 +1004,7 @@ defmodule SymphonyElixir.Orchestrator do
         }
 
       {:error, reason} ->
+        state = dispatch_stopped(state, issue.id)
         Logger.error("Unable to spawn agent for #{issue_context(issue)}: #{inspect(reason)}")
         next_attempt = if is_integer(attempt), do: attempt + 1, else: nil
 
@@ -1220,7 +1234,27 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
+  defp dispatch_config(%{dispatch_config: nil}), do: Config.dispatch_admission()
+  defp dispatch_config(%{dispatch_config: config}), do: config
+
+  defp dispatch_stopped(state, issue_id) do
+    case Launch.stopped(dispatch_config(state), issue_id, state.dispatch_reservations[issue_id]) do
+      {:ok, handle} ->
+        %{state | dispatch_reservations: Map.put(state.dispatch_reservations, issue_id, handle)}
+
+      {:error, reason} ->
+        %{state | dispatch_holds: Map.put(state.dispatch_holds, issue_id, reason)}
+    end
+  end
+
   defp release_issue_claim(%State{} = state, issue_id) do
+    state =
+      case Launch.release(dispatch_config(state), issue_id, state.dispatch_reservations[issue_id]) do
+        {:ok, :released} -> %{state | dispatch_reservations: Map.delete(state.dispatch_reservations, issue_id), dispatch_holds: Map.delete(state.dispatch_holds, issue_id)}
+        {:error, :missing_reservation} -> state
+        {:error, reason} -> %{state | dispatch_holds: Map.put(state.dispatch_holds, issue_id, reason)}
+      end
+
     %{
       state
       | claimed: MapSet.delete(state.claimed, issue_id),
@@ -1405,7 +1439,28 @@ defmodule SymphonyElixir.Orchestrator do
     end
   end
 
+  @doc "Recover only after an operator has verified the exact reserved session stopped. Tokens are never exposed in status."
+  @spec recover_dispatch(GenServer.server(), String.t(), map(), map()) :: tuple()
+  def recover_dispatch(server, issue_id, handle, proof) do
+    GenServer.call(server, {:recover_dispatch, issue_id, handle, proof})
+  end
+
   @impl true
+  def handle_call({:recover_dispatch, issue_id, handle, proof}, _from, state) do
+    if Map.has_key?(state.running, issue_id) do
+      {:reply, {:error, :locally_running}, state}
+    else
+      case Launch.recover(dispatch_config(state), issue_id, handle, proof) do
+        {:ok, recovered} ->
+          next = %{state | dispatch_reservations: Map.put(state.dispatch_reservations, issue_id, recovered), dispatch_holds: Map.delete(state.dispatch_holds, issue_id)}
+          {:reply, {:ok, :recovered}, next}
+
+        error ->
+          {:reply, error, state}
+      end
+    end
+  end
+
   def handle_call(:snapshot, _from, state) do
     state = refresh_runtime_config(state)
     now = DateTime.utc_now()
@@ -1471,6 +1526,7 @@ defmodule SymphonyElixir.Orchestrator do
 
     {:reply,
      %{
+       dispatch: %{authority: Launch.status(dispatch_config(state)), holds: state.dispatch_holds},
        running: running,
        retrying: retrying,
        blocked: blocked,

@@ -1,3 +1,5 @@
+Code.require_file("../symphony_elixir/dispatch_backpressure/fixtures.exs", __DIR__)
+
 defmodule SymphonyElixir.TestSupport do
   @workflow_prompt "You are an agent for this repository."
 
@@ -38,9 +40,12 @@ defmodule SymphonyElixir.TestSupport do
         if Process.whereis(SymphonyElixir.WorkflowStore), do: SymphonyElixir.WorkflowStore.force_reload()
         stop_default_http_server()
 
+        Application.put_env(:symphony_elixir, :dispatch_reader_options, SymphonyElixir.Dispatch.Backpressure.Fixtures.reader_options())
+
         on_exit(fn ->
           Application.delete_env(:symphony_elixir, :workflow_file_path)
           Application.delete_env(:symphony_elixir, :server_port_override)
+          Application.delete_env(:symphony_elixir, :dispatch_reader_options)
           Application.delete_env(:symphony_elixir, :memory_tracker_issues)
           File.rm_rf(workflow_root)
         end)
@@ -52,7 +57,8 @@ defmodule SymphonyElixir.TestSupport do
 
   def write_workflow_file!(path, overrides \\ []) do
     workflow = workflow_content(overrides)
-    File.write!(path, workflow)
+    dispatch = "dispatch:\n  repositories: [fixture/repository]\n  issue_ids: []\n  state_dir: #{Path.join(Path.dirname(path), ".symphony-dispatch")}\n"
+    File.write!(path, String.replace(workflow, "---\n", "---\n" <> dispatch, global: false))
 
     if Process.whereis(SymphonyElixir.WorkflowStore) do
       try do

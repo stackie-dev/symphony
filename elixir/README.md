@@ -409,3 +409,11 @@ into the scheduler and does not change current dispatch behavior.
 ## License
 
 This project is licensed under the [Apache License 2.0](../LICENSE).
+
+## Durable writer admission
+
+Dispatch requires explicit trusted `dispatch` configuration. Two durable writer
+reservations and one exclusive integration/repair owner survive retries and
+restart; delivery uncertainty and integration regressions hold new writers.
+See [dispatch admission and recovery](../docs/dispatch-backpressure.md) for configuration,
+selected issue accounting, capability recovery and validation responsibilities.
