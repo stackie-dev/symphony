@@ -2310,3 +2310,11 @@ Extension config:
 - Cleanup and observability:
   - Operators need to know which host owns a run, where its workspace lives, and whether cleanup
     happened on the right machine.
+
+## Durable writer admission
+
+Dispatch requires explicit trusted `dispatch` configuration. Two durable writer
+reservations and one exclusive integration/repair owner survive retries and
+restart; delivery uncertainty and integration regressions hold new writers.
+See [dispatch admission and recovery](docs/dispatch-backpressure.md) for configuration,
+selected issue accounting, capability recovery and validation responsibilities.

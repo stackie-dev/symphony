@@ -42,6 +42,23 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  @spec dispatch_admission() :: tuple()
+  def dispatch_admission do
+    with {:ok, %{config: config}} <- Workflow.current() do
+      case SymphonyElixir.Dispatch.Admission.Launch.config(
+             Map.get(config, "dispatch"),
+             Workflow.workflow_file_path() |> Path.expand() |> Path.dirname()
+           ) do
+        {:ok, dispatch} ->
+          # Trusted read-boundary injection; admission policy and persistence remain canonical.
+          {:ok, Map.put(dispatch, :reader_options, Application.get_env(:symphony_elixir, :dispatch_reader_options, []))}
+
+        error ->
+          error
+      end
+    end
+  end
+
   @spec max_concurrent_agents_for_state(term()) :: pos_integer()
   def max_concurrent_agents_for_state(state_name) when is_binary(state_name) do
     config = settings!()

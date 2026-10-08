@@ -327,3 +327,11 @@ Use this exact structure for the persistent workpad comment and keep it updated 
 
 - <only include when something was confusing during execution>
 ````
+
+## Durable writer admission
+
+Dispatch requires explicit trusted `dispatch` configuration. Two durable writer
+reservations and one exclusive integration/repair owner survive retries and
+restart; delivery uncertainty and integration regressions hold new writers.
+See [dispatch admission and recovery](../docs/dispatch-backpressure.md) for configuration,
+selected issue accounting, capability recovery and validation responsibilities.
