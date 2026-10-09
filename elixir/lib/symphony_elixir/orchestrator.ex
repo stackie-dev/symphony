@@ -1261,8 +1261,12 @@ defmodule SymphonyElixir.Orchestrator do
         {:ok, :released} ->
           :ok = LocalSessions.forget(dispatch_config(state), state.task_supervisor, issue_id, state.dispatch_reservations[issue_id])
           %{state | dispatch_reservations: Map.delete(state.dispatch_reservations, issue_id), dispatch_holds: Map.delete(state.dispatch_holds, issue_id)}
-        {:error, :missing_reservation} -> state
-        {:error, reason} -> %{state | dispatch_holds: Map.put(state.dispatch_holds, issue_id, reason)}
+
+        {:error, :missing_reservation} ->
+          state
+
+        {:error, reason} ->
+          %{state | dispatch_holds: Map.put(state.dispatch_holds, issue_id, reason)}
       end
 
     %{
