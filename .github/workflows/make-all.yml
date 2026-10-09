@@ -10,7 +10,7 @@ jobs:
   make-all:
     # Root-owned final two-ticket batch: no other compatible Symphony delivery
     # is underway. Other branches and main retain their original full gate.
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/portable-symphony-batch-20261008' && 'linux-amd64-internal' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     env:
       DISPATCH_BATCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/portable-symphony-batch-20261008' }}
     defaults:
