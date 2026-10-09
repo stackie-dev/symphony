@@ -53,6 +53,8 @@ jobs:
 
       - name: Check formatting and public specifications
         if: env.DISPATCH_BATCH == 'true'
+        env:
+          MIX_ENV: test
         run: |
           git rev-parse HEAD
           git status --porcelain

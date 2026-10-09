@@ -10,6 +10,7 @@ defmodule SymphonyElixir.Orchestrator do
   alias SymphonyElixir.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
   alias SymphonyElixir.Tracker.Issue
   alias SymphonyElixir.Dispatch.Admission.Launch
+  alias SymphonyElixir.Dispatch.LocalSessions
 
   @continuation_retry_delay_ms 1_000
   @failure_retry_base_ms 10_000
@@ -952,7 +953,10 @@ defmodule SymphonyElixir.Orchestrator do
         state
 
       worker_host ->
-        case Launch.acquire(dispatch_config(state), issue.id, state.dispatch_reservations[issue.id]) do
+        config = dispatch_config(state)
+        resume = state.dispatch_reservations[issue.id] || LocalSessions.stopped_handle(config, state.task_supervisor, issue.id)
+
+        case Launch.acquire(config, issue.id, resume) do
           {:ok, handle} ->
             state = %{state | dispatch_reservations: Map.put(state.dispatch_reservations, issue.id, handle), dispatch_holds: Map.delete(state.dispatch_holds, issue.id)}
             spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host)
@@ -968,6 +972,10 @@ defmodule SymphonyElixir.Orchestrator do
            AgentRunner.run(issue, recipient, attempt: attempt, worker_host: worker_host)
          end) do
       {:ok, pid} ->
+        if is_nil(worker_host) do
+          :ok = LocalSessions.observe(dispatch_config(state), state.task_supervisor, issue.id, state.dispatch_reservations[issue.id], pid)
+        end
+
         ref = Process.monitor(pid)
 
         Logger.info("Dispatching issue to agent: #{issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}")
@@ -1250,7 +1258,9 @@ defmodule SymphonyElixir.Orchestrator do
   defp release_issue_claim(%State{} = state, issue_id) do
     state =
       case Launch.release(dispatch_config(state), issue_id, state.dispatch_reservations[issue_id]) do
-        {:ok, :released} -> %{state | dispatch_reservations: Map.delete(state.dispatch_reservations, issue_id), dispatch_holds: Map.delete(state.dispatch_holds, issue_id)}
+        {:ok, :released} ->
+          :ok = LocalSessions.forget(dispatch_config(state), state.task_supervisor, issue_id, state.dispatch_reservations[issue_id])
+          %{state | dispatch_reservations: Map.delete(state.dispatch_reservations, issue_id), dispatch_holds: Map.delete(state.dispatch_holds, issue_id)}
         {:error, :missing_reservation} -> state
         {:error, reason} -> %{state | dispatch_holds: Map.put(state.dispatch_holds, issue_id, reason)}
       end

@@ -66,6 +66,14 @@ Forced/uncertain shutdown can retain an in-flight reservation even after the loc
 running entry disappears. After restart the journal retains counts and ownership;
 new processes do not guess whether old remote sessions stopped.
 
+An application-owned local task monitor survives scheduler restarts. It retains
+the exact private session capability and marks it idle only after receiving that
+task's monitored `DOWN`. The same scheduler authority can reuse that observed
+stopped handle, preserving its writer slot and issuing a new session. Remote
+worker hosts are not registered with this monitor. Monitor/application failure
+loses this observation rather than guessing; durable reservations then continue
+to require explicit stopped-session recovery.
+
 Status includes writer count, integration owner, regression and per-issue
 `in_flight_or_recovery_required` / `retry_reserved` holds, plus exact launch errors.
 It never publishes tokens. The private journal's token/session is a capability.

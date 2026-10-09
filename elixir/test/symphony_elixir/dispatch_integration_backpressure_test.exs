@@ -79,7 +79,7 @@ defmodule SymphonyElixir.DispatchIntegrationBackpressureTest do
     text = File.read!(path)
     File.write!(path, String.replace(text, "  issue_ids: []\n", "  issue_ids: []\n  integration_scopes: {integration: core}\n"))
     :ok = WorkflowStore.force_reload()
-    issue = %Issue{id: "one", identifier: "STA-201", title: "Admission boundary", state: "Todo", url: "https://example.test/one"}
+    issue = %Issue{id: "one", identifier: "STA-201", title: "Admission boundary", state: "Todo", url: "https://example.test/one", dispatchable: true}
     Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
     supervisor = start_supervised!({Task.Supervisor, max_children: 0})
     server = start_supervised!({Orchestrator, name: nil, task_supervisor: supervisor})
