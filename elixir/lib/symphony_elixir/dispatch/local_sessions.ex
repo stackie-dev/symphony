@@ -1,5 +1,10 @@
 defmodule SymphonyElixir.Dispatch.LocalSessions do
-  @moduledoc "Observed local task shutdown survives scheduler restarts; remote sessions require explicit recovery."
+  @moduledoc """
+  Observed local task shutdown survives scheduler restarts; remote sessions require explicit recovery.
+
+  Original scheduler lifecycle assertions live in `test/symphony_elixir/core_test.exs`;
+  admission and retry composition is exercised by `test/symphony_elixir/dispatch_integration_backpressure_test.exs`.
+  """
   use GenServer
   alias SymphonyElixir.Dispatch.Admission.Launch
 
