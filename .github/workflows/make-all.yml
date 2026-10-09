@@ -8,7 +8,11 @@ on:
 
 jobs:
   make-all:
+    # Root-owned final two-ticket batch: no other compatible Symphony delivery
+    # is underway. Other branches and main retain their original full gate.
     runs-on: ubuntu-latest
+    env:
+      DISPATCH_BATCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'codex/portable-symphony-batch-20261008' }}
     defaults:
       run:
         working-directory: elixir
@@ -16,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up mise tools
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
@@ -35,4 +41,43 @@ jobs:
             ${{ runner.os }}-mix-
 
       - name: Verify make all
+        if: env.DISPATCH_BATCH != 'true'
         run: make all
+
+      - name: Install bounded batch dependencies
+        if: env.DISPATCH_BATCH == 'true'
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          MIX_ENV=test mix deps.get
+
+      - name: Check formatting and public specifications
+        if: env.DISPATCH_BATCH == 'true'
+        env:
+          MIX_ENV: test
+        run: |
+          git rev-parse HEAD
+          git status --porcelain
+          mix format --check-formatted
+          mix specs.check
+
+      - name: Validate reader and admission boundaries together
+        if: env.DISPATCH_BATCH == 'true'
+        env:
+          MIX_ENV: test
+        run: |
+          mix compile --warnings-as-errors
+          mix test \
+            test/symphony_elixir/core_test.exs \
+            test/symphony_elixir/orchestrator_status_test.exs \
+            test/symphony_elixir/dispatch_contract_test.exs \
+            test/symphony_elixir/dispatch_capacity_test.exs \
+            test/symphony_elixir/dispatch_eligibility_test.exs \
+            test/symphony_elixir/linear_admission_metadata_test.exs \
+            test/symphony_elixir/github_adapter_test.exs \
+            test/symphony_elixir/dispatch_delivery_state_test.exs \
+            test/symphony_elixir/delivery_state/source_boundary_test.exs \
+            test/symphony_elixir/delivery_state/persistence_boundary_test.exs \
+            test/symphony_elixir/dispatch_integration_backpressure_test.exs \
+            test/symphony_elixir/dispatch_backpressure/reservations_test.exs \
+            test/symphony_elixir/dispatch_backpressure/process_contention_test.exs
